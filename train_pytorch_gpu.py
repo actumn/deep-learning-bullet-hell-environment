@@ -15,9 +15,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import torchvision.transforms as T
 
-device = torch.device('cuda')
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class DQN(nn.Module):
@@ -30,7 +29,9 @@ class DQN(nn.Module):
         self.conv3 = nn.Conv2d(64, 128, kernel_size=2, stride=2)
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=1, padding=(2 - 1) // 2)
 
-        self.head = nn.Linear(512, num_of_actions)
+        self.fc1 = nn.Linear(512, 256)
+        self.fc2 = nn.Linear(256, 10)
+        self.head = nn.Linear(10, num_of_actions)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
@@ -38,7 +39,12 @@ class DQN(nn.Module):
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
         x = self.pool2(x)
-        return self.head(x.view(x.size(0), -1))
+        x = x.view(x.size(0), -1)
+
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.head(x)
+        return x
 
 
 def transform_state(single_state):
@@ -54,7 +60,7 @@ def transform_state(single_state):
 
 model = DQN().to(device)
 model = nn.DataParallel(model)
-#model.load_state_dict(torch.load('./weights_pytorch'))
+model.load_state_dict(torch.load('./weights_pytorch'))
 optimizer = optim.Adam(model.parameters())
 Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state', 'is_terminal'))
 
@@ -72,14 +78,11 @@ while True:
 
     # choose an action epsilon greedy, or the action that will return the highest reward using our network
     # i chose to create an arbitrary policy before it starts learning to try and explore as much as it can
-    if steps < observe:
-        action = 1 if random.random() < 0.5 else 0
+    if random.random() <= epsilon:
+        action = random.randint(0, num_of_actions - 1)  # choose a random action
     else:
-        if random.random() <= epsilon:
-            action = random.randint(0, num_of_actions - 1)  # choose a random action
-        else:
-            q_index = model(curr_state).max(1)[1]  # input a stack of 4 images, get the prediction
-            action = q_index.item()
+        q_index = model(curr_state).max(1)[1]  # input a stack of 4 images, get the prediction
+        action = q_index.item()
 
     # execute the action and observe the reward and the state transitioned to as a result of our action
     reward, next_state, is_terminal = game.MainLoop(action)
@@ -108,7 +111,10 @@ while True:
         input_next_states = torch.cat(batch.next_state)
         Q_sa = model(input_next_states).max(1)[0]
         for i in range(batch_size):
-            targets[i, batch.action[i]] = batch.reward[i] + gamma * Q_sa[i]
+            if batch.is_terminal[i]:
+                targets[i, batch.action[i]] = death_reward
+            else:
+                targets[i, batch.action[i]] = batch.reward[i] + gamma * Q_sa[i]
 
         # train the network with the new values calculated with Q-learning and get loss of our network for evaluation
         outputs = model(inputs)
