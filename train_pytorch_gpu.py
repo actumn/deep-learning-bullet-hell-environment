@@ -78,11 +78,14 @@ while True:
 
     # choose an action epsilon greedy, or the action that will return the highest reward using our network
     # i chose to create an arbitrary policy before it starts learning to try and explore as much as it can
-    if random.random() <= epsilon:
-        action = random.randint(0, num_of_actions - 1)  # choose a random action
+    if steps < observe:
+        action = 1 if random.random() < 0.5 else 0
     else:
-        q_index = model(curr_state).max(1)[1]  # input a stack of 4 images, get the prediction
-        action = q_index.item()
+        if random.random() <= epsilon:
+            action = random.randint(0, num_of_actions - 1)  # choose a random action
+        else:
+            q_index = model(curr_state).max(1)[1]  # input a stack of 4 images, get the prediction
+            action = q_index.item()
 
     # execute the action and observe the reward and the state transitioned to as a result of our action
     reward, next_state, is_terminal = game.MainLoop(action)
@@ -105,8 +108,7 @@ while True:
         # we have 32 images per batch, images of 128x128 and 4 of each of these images.
         # 32 Q values for these batches
         inputs = torch.cat(batch.state)
-        targets = model(inputs).max(1)  # 32, 2
-        targets = torch.cat((targets[0].reshape(-1, 1), targets[1].reshape(-1, 1).to(device, dtype=torch.float)), 1)
+        targets = model(inputs)  # 32, 2
 
         input_next_states = torch.cat(batch.next_state)
         Q_sa = model(input_next_states).max(1)[0]
