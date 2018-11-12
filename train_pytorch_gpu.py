@@ -1,3 +1,4 @@
+import math
 import sys, os
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/game")
@@ -78,14 +79,12 @@ while True:
 
     # choose an action epsilon greedy, or the action that will return the highest reward using our network
     # i chose to create an arbitrary policy before it starts learning to try and explore as much as it can
-    if steps < observe:
-        action = 1 if random.random() < 0.5 else 0
+    eps_threshold = eps_end + (eps_start - eps_end) * math.exp(-1. * steps / eps_decay)
+    if random.random() <= eps_threshold:
+        action = 1 if random.random() < 0.5 else 0  # choose a random action
     else:
-        if random.random() <= epsilon:
-            action = random.randint(0, num_of_actions - 1)  # choose a random action
-        else:
-            q_index = model(curr_state).max(1)[1]  # input a stack of 4 images, get the prediction
-            action = q_index.item()
+        q_index = model(curr_state).max(1)[1]  # input a stack of 4 images, get the prediction
+        action = q_index.item()
 
     # execute the action and observe the reward and the state transitioned to as a result of our action
     reward, next_state, is_terminal = game.MainLoop(action)
