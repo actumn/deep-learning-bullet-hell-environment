@@ -9,7 +9,7 @@ from skimage import color, transform, exposure
 import random
 
 game = Main()
-queue = deque()
+memory = deque()
 from config import *
 
 import torch
@@ -77,8 +77,10 @@ while True:
     action = 0  # initialize action index
     Q_sa = [0]  # initialize state
 
-    # choose an action epsilon greedy, or the action that will return the highest reward using our network
-    # i chose to create an arbitrary policy before it starts learning to try and explore as much as it can
+    '''    
+    The probability of choosing a random action will start at EPS_START
+    and will decay exponentially towards EPS_END. EPS_DECAY controls the rate of the decay.
+    '''
     eps_threshold = eps_end + (eps_start - eps_end) * math.exp(-1. * steps / eps_decay)
     if random.random() <= eps_threshold:
         action = 1 if random.random() < 0.5 else 0  # choose a random action
@@ -97,9 +99,9 @@ while True:
     We need enough states in our experience replay deque so that we can take a random sample from it of the size we declared.
     Therefore we wait until a certain number and observe the environment until we're ready.
     '''
-    if steps > observe:
+    if len(memory) > batch_size:
         # sample a random minibatch of transitions in D (replay memory)
-        transitions = random.sample(queue, batch_size)
+        transitions = random.sample(memory, batch_size)
         batch = Transition(*zip(*transitions))
 
         # Begin creating the input required for the network:
@@ -111,11 +113,15 @@ while True:
 
         input_next_states = torch.cat(batch.next_state)
         Q_sa = model(input_next_states).max(1)[0]
-        for i in range(batch_size):
-            if batch.is_terminal[i]:
-                targets[i, batch.action[i]] = death_reward
-            else:
-                targets[i, batch.action[i]] = batch.reward[i] + gamma * Q_sa[i]
+
+        train_reward = torch.tensor(batch.reward, device=device, dtype=torch.float)
+        train_result = torch.tensor(batch.is_terminal, device=device, dtype=torch.float)
+
+        i = train_result == 0.
+        train_result[i] = train_reward[i] + gamma * Q_sa[i]
+        train_result[train_result == 1.] = death_reward
+
+        targets[torch.arange(batch_size), batch.action] = train_result
 
         # train the network with the new values calculated with Q-learning and get loss of our network for evaluation
         outputs = model(inputs)
@@ -126,9 +132,9 @@ while True:
             param.grad.data.clamp_(-1, 1)
         optimizer.step()
 
-    queue.append((curr_state, action, reward, next_state, is_terminal))
-    if len(queue) > exp_replay_memory:
-        queue.popleft()
+    memory.append((curr_state, action, reward, next_state, is_terminal))
+    if len(memory) > exp_replay_memory:
+        memory.popleft()
 
     curr_state = next_state
     steps += 1
